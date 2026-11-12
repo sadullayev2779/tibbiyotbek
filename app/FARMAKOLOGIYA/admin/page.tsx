@@ -95,7 +95,7 @@ export default function AdminDrugsPage() {
           </form>
 
           <div className="mt-6 text-center">
-            <Link href="/FARMAKOLOGIYA/dorilar" className="text-xs text-gray-500 hover:text-gray-300">
+            <Link href="/farmakologiya/dorilar" className="text-xs text-gray-500 hover:text-gray-300">
               &larr; Saytga qaytish
             </Link>
           </div>
@@ -113,7 +113,7 @@ export default function AdminDrugsPage() {
             Yangi Dori Qo‘shish (Admin)
           </h1>
           <Link
-            href="/FARMAKOLOGIYA/dorilar"
+            href="/farmakologiya/dorilar"
             className="text-sm text-gray-400 hover:text-cyan-400 transition"
           >
             &larr; Dorilar ro‘yxati

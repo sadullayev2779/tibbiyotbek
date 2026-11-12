@@ -32,7 +32,7 @@ export default function HomePage() {
         {/* Farmakologiya Bo'limi */}
         <div className="max-w-xl mx-auto">
           <Link
-            href="/FARMAKOLOGIYA/dorilar"
+            href="/farmakologiya /dorilar"
             className="group block p-8 bg-[#111827] border border-cyan-500/30 rounded-2xl hover:border-cyan-400 transition shadow-xl text-center"
           >
             <div className="w-14 h-14 bg-cyan-500/10 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-4 group-hover:scale-110 transition">
