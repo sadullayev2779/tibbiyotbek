@@ -1,118 +1,144 @@
 'use client';
 
 import { useState } from 'react';
+import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 
-export default function AdminPage() {
+export default function AdminDrugsPage() {
   const [name, setName] = useState('');
-  const [group, setGroup] = useState('');
-  const [mechanism, setMechanism] = useState('');
+  const [pharmacologicalGroup, setPharmacologicalGroup] = useState('');
+  const [mechanismOfAction, setMechanismOfAction] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
-  const [successMessage, setSuccessMessage] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Bu yerda kelgusida ma'lumotlar bazasiga saqlash amallari bajariladi
-    console.log({ name, group, mechanism, videoUrl });
-    setSuccessMessage(true);
-    setName('');
-    setGroup('');
-    setMechanism('');
-    setVideoUrl('');
-    setTimeout(() => setSuccessMessage(false), 3000);
-  };
+    setLoading(true);
+    setMessage(null);
 
-  const handleClear = () => {
-    setName('');
-    setGroup('');
-    setMechanism('');
-    setVideoUrl('');
-    setSuccessMessage(false);
+    try {
+      const { error } = await supabase.from('drugs').insert([
+        {
+          name: name.trim(),
+          pharmacological_group: pharmacologicalGroup.trim(),
+          mechanism_of_action: mechanismOfAction.trim(),
+          video_url: videoUrl.trim() || null,
+        },
+      ]);
+
+      if (error) throw error;
+
+      setMessage({ type: 'success', text: 'Dori bazaga muvaffaqiyatli qo‘shildi!' });
+      setName('');
+      setPharmacologicalGroup('');
+      setMechanismOfAction('');
+      setVideoUrl('');
+    } catch (err: any) {
+      setMessage({
+        type: 'error',
+        text: `Xatolik yuz berdi: ${err.message || "Ma'lumotni saqlab bo'lmadi"}`,
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <main className="min-h-screen bg-[#0a0f1d] text-white p-6 md:p-12">
+    <div className="min-h-screen bg-[#0b1120] text-white p-6 md:p-12">
       <div className="max-w-2xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-emerald-400 bg-clip-text text-transparent">
-            Admin Panel — Dori Qo'shish
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-2xl md:text-3xl font-bold text-cyan-400">
+            Yangi Dori Qo‘shish (Admin)
           </h1>
-          <Link href="/farmakologiya/dorilar" className="text-sm text-cyan-400 hover:underline">
-            &larr; Dorilar ro'yxatiga qaytish
+          <Link
+            href="/FARMAKOLOGIYA/dorilar"
+            className="text-sm text-gray-400 hover:text-cyan-400 transition"
+          >
+            &larr; Dorilar ro‘yxatiga qaytish
           </Link>
         </div>
 
-        {successMessage && (
-          <div className="mb-6 p-4 bg-emerald-500/20 border border-emerald-500 text-emerald-300 rounded-xl">
-            Dori muvaffaqiyatli qo'shildi!
+        {message && (
+          <div
+            className={`p-4 rounded-xl mb-6 text-sm font-medium ${
+              message.type === 'success'
+                ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+                : 'bg-red-500/10 border border-red-500/30 text-red-300'
+            }`}
+          >
+            {message.text}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="bg-[#111827] border border-cyan-500/20 p-6 rounded-2xl shadow-xl space-y-5">
+        <form
+          onSubmit={handleSubmit}
+          className="space-y-5 bg-[#111827] p-6 md:p-8 rounded-2xl border border-gray-800"
+        >
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Dorining nomi</label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Dori nomi *
+            </label>
             <input
               type="text"
               required
-              placeholder="Masalan: Paratsetamol"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-3 bg-[#0a0f1d] border border-cyan-500/30 rounded-xl focus:outline-none focus:border-cyan-400 text-white"
+              placeholder="Masalan: Paratsetamol (Panadol)"
+              className="w-full px-4 py-3 bg-[#0b1120] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-cyan-500"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Farmakologik guruhi</label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Farmakologik guruhi *
+            </label>
             <input
               type="text"
               required
-              placeholder="Masalan: Anestetiklar va antipyretics"
-              value={group}
-              onChange={(e) => setGroup(e.target.value)}
-              className="w-full px-4 py-3 bg-[#0a0f1d] border border-cyan-500/30 rounded-xl focus:outline-none focus:border-cyan-400 text-white"
+              value={pharmacologicalGroup}
+              onChange={(e) => setPharmacologicalGroup(e.target.value)}
+              placeholder="Masalan: Anestetiklar va antipiretiklar"
+              className="w-full px-4 py-3 bg-[#0b1120] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-cyan-500"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Ta'sir mexanizmi (Tavsif)</label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Ta’sir mexanizmi *
+            </label>
             <textarea
               required
               rows={4}
-              placeholder="Dorining organizmdagi ta'sir mexanizmini yozing..."
-              value={mechanism}
-              onChange={(e) => setMechanism(e.target.value)}
-              className="w-full px-4 py-3 bg-[#0a0f1d] border border-cyan-500/30 rounded-xl focus:outline-none focus:border-cyan-400 text-white"
+              value={mechanismOfAction}
+              onChange={(e) => setMechanismOfAction(e.target.value)}
+              placeholder="Dorining organizmga qanday ta'sir qilishini yozing..."
+              className="w-full px-4 py-3 bg-[#0b1120] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-cyan-500"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Video havola (YouTube yoki 3D video linki)</label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Video havolasi (YouTube Embed URL - ixtiyoriy)
+            </label>
             <input
               type="url"
-              placeholder="https://www.youtube.com/embed/..."
               value={videoUrl}
               onChange={(e) => setVideoUrl(e.target.value)}
-              className="w-full px-4 py-3 bg-[#0a0f1d] border border-cyan-500/30 rounded-xl focus:outline-none focus:border-cyan-400 text-white"
+              placeholder="https://www.youtube.com/embed/..."
+              className="w-full px-4 py-3 bg-[#0b1120] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-cyan-500"
             />
           </div>
 
-          <div className="flex gap-4">
-            <button
-              type="submit"
-              className="flex-1 py-3 bg-gradient-to-r from-cyan-500 to-emerald-500 text-gray-950 font-bold rounded-xl hover:opacity-90 transition shadow-lg"
-            >
-              Dorini saqlash
-            </button>
-            <button
-              type="button"
-              onClick={handleClear}
-              className="px-6 py-3 bg-gray-800 text-gray-300 font-bold rounded-xl hover:bg-gray-700 transition"
-            >
-              Tozalash
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-semibold rounded-xl transition cursor-pointer"
+          >
+            {loading ? 'Saqlanmoqda...' : 'Bazaga saqlash'}
+          </button>
         </form>
       </div>
-    </main>
+    </div>
   );
 }
