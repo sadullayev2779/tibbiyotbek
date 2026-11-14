@@ -226,6 +226,13 @@ export async function POST(req: Request) {
       useSearch = false;
       res = await callGemini(apiKey, contents, false);
     }
+
+    // Google band bo‘lsa (500/503), qisqa pauza bilan 2 marta qayta urinamiz
+    for (let attempt = 1; attempt <= 2 && (res.status === 503 || res.status === 500); attempt++) {
+      console.error(`Gemini ${res.status}, qayta urinish ${attempt}`);
+      await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+      res = await callGemini(apiKey, contents, useSearch);
+    }
   } catch (err) {
     console.error('Gemini so‘rovi muvaffaqiyatsiz:', err);
     return NextResponse.json(
@@ -251,7 +258,9 @@ export async function POST(req: Request) {
         error:
           res.status === 429
             ? 'AI so‘rovlar limiti tugadi. Keyinroq urinib ko‘ring.'
-            : `AI xizmatida xatolik yuz berdi (kod ${res.status}).${detail ? ` ${detail.slice(0, 200)}` : ''}`,
+            : res.status === 503
+              ? 'AI hozir band (Google serverlari yuklangan). Bir necha soniyadan keyin qayta yuboring.'
+              : `AI xizmatida xatolik yuz berdi (kod ${res.status}).${detail ? ` ${detail.slice(0, 200)}` : ''}`,
       },
       { status: res.status === 429 ? 429 : 502 }
     );
