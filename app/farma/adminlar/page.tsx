@@ -1,14 +1,23 @@
 'use client';
 
-import { useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import type { Session } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabase';
+import { toYouTubeEmbedUrl } from '@/lib/video';
 
-const ADMIN_PASSWORD = 'Abdurahmon121';
+type Message = { type: 'success' | 'error'; text: string };
+
+const inputClass =
+  'w-full px-4 py-3 bg-[#0b1120] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-cyan-500';
 
 export default function AdminDrugsPage() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [passwordInput, setPasswordInput] = useState('');
+  const [session, setSession] = useState<Session | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [signingIn, setSigningIn] = useState(false);
   const [authError, setAuthError] = useState('');
 
   const [name, setName] = useState('');
@@ -16,79 +25,135 @@ export default function AdminDrugsPage() {
   const [mechanismOfAction, setMechanismOfAction] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [message, setMessage] = useState<Message | null>(null);
 
-  const handleLogin = (e: React.FormEvent) => {
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setCheckingSession(false);
+    });
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (passwordInput === ADMIN_PASSWORD) {
-      setIsAuthenticated(true);
-      setAuthError('');
-    } else {
-      setAuthError('Parol noto‘g‘ri kiritildi!');
-    }
+    setSigningIn(true);
+    setAuthError('');
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+
+    if (error) setAuthError('Email yoki parol noto‘g‘ri.');
+    setPassword('');
+    setSigningIn(false);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setMessage(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setMessage(null);
 
-    try {
-      const { error } = await supabase.from('drugs').insert([
-        {
-          name: name.trim(),
-          pharmacological_group: pharmacologicalGroup.trim(),
-          mechanism_of_action: mechanismOfAction.trim(),
-          video_url: videoUrl.trim() || null,
-        },
-      ]);
+    let embedUrl: string | null = null;
+    if (videoUrl.trim()) {
+      embedUrl = toYouTubeEmbedUrl(videoUrl);
+      if (!embedUrl) {
+        setMessage({
+          type: 'error',
+          text: 'Video havolasi noto‘g‘ri. YouTube havolasini kiriting (youtube.com/watch?v=... yoki youtu.be/...).',
+        });
+        return;
+      }
+    }
 
-      if (error) throw error;
+    setLoading(true);
+    const { error } = await supabase.from('drugs').insert([
+      {
+        name: name.trim(),
+        pharmacological_group: pharmacologicalGroup.trim(),
+        mechanism_of_action: mechanismOfAction.trim(),
+        video_url: embedUrl,
+      },
+    ]);
+    setLoading(false);
 
-      setMessage({ type: 'success', text: 'Dori bazaga muvaffaqiyatli qo‘shildi!' });
-      setName('');
-      setPharmacologicalGroup('');
-      setMechanismOfAction('');
-      setVideoUrl('');
-    } catch (err: any) {
+    if (error) {
       setMessage({
         type: 'error',
-        text: `Xatolik yuz berdi: ${err.message || "Ma'lumotni saqlab bo'lmadi"}`,
+        text:
+          error.code === '42501'
+            ? 'Ruxsat yo‘q: bu hisob dori qo‘sha olmaydi.'
+            : `Saqlab bo‘lmadi: ${error.message}`,
       });
-    } finally {
-      setLoading(false);
+      return;
     }
+
+    setMessage({ type: 'success', text: 'Dori bazaga qo‘shildi.' });
+    setName('');
+    setPharmacologicalGroup('');
+    setMechanismOfAction('');
+    setVideoUrl('');
   };
 
-  if (!isAuthenticated) {
+  if (checkingSession) {
+    return (
+      <div className="min-h-screen bg-[#0b1120] text-gray-400 flex items-center justify-center">
+        Yuklanmoqda...
+      </div>
+    );
+  }
+
+  if (!session) {
     return (
       <div className="min-h-screen bg-[#0b1120] text-white flex items-center justify-center p-6">
         <div className="max-w-md w-full bg-[#111827] p-8 rounded-2xl border border-gray-800">
-          <h1 className="text-2xl font-bold text-cyan-400 mb-2">Admin Panelga Kirish</h1>
-          <p className="text-gray-400 text-sm mb-6">
-            Davom etish uchun maxfiy parolni kiriting.
-          </p>
+          <h1 className="text-2xl font-bold text-cyan-400 mb-2">Admin panelga kirish</h1>
+          <p className="text-gray-400 text-sm mb-6">Admin email va parolingizni kiriting.</p>
 
           {authError && (
-            <div className="p-3 rounded-xl mb-4 text-sm bg-red-500/10 border border-red-500/30 text-red-300">
+            <div
+              role="alert"
+              className="p-3 rounded-xl mb-4 text-sm bg-red-500/10 border border-red-500/30 text-red-300"
+            >
               {authError}
             </div>
           )}
 
           <form onSubmit={handleLogin} className="space-y-4">
             <input
+              type="email"
+              required
+              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email"
+              className={inputClass}
+            />
+            <input
               type="password"
               required
-              value={passwordInput}
-              onChange={(e) => setPasswordInput(e.target.value)}
-              placeholder="Maxfiy parol..."
-              className="w-full px-4 py-3 bg-[#0b1120] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-cyan-500"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Parol"
+              className={inputClass}
             />
             <button
               type="submit"
-              className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-xl transition cursor-pointer"
+              disabled={signingIn}
+              className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-semibold rounded-xl transition cursor-pointer"
             >
-              Kirish
+              {signingIn ? 'Tekshirilmoqda...' : 'Kirish'}
             </button>
           </form>
 
@@ -105,20 +170,24 @@ export default function AdminDrugsPage() {
   return (
     <div className="min-h-screen bg-[#0b1120] text-white p-6 md:p-12">
       <div className="max-w-2xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-2xl md:text-3xl font-bold text-cyan-400">
-            Yangi Dori Qo‘shish (Admin)
-          </h1>
-          <Link
-            href="/farma/dori"
-            className="text-sm text-gray-400 hover:text-cyan-400 transition"
-          >
-            &larr; Dorilar ro‘yxati
-          </Link>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-8">
+          <h1 className="text-2xl md:text-3xl font-bold text-cyan-400">Yangi dori qo‘shish</h1>
+          <div className="flex items-center gap-4 text-sm">
+            <Link href="/farma/dori" className="text-gray-400 hover:text-cyan-400 transition">
+              &larr; Dorilar ro‘yxati
+            </Link>
+            <button
+              onClick={handleLogout}
+              className="text-gray-400 hover:text-white transition cursor-pointer"
+            >
+              Chiqish
+            </button>
+          </div>
         </div>
 
         {message && (
           <div
+            role="status"
             className={`p-4 rounded-xl mb-6 text-sm font-medium ${
               message.type === 'success'
                 ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
@@ -134,58 +203,65 @@ export default function AdminDrugsPage() {
           className="space-y-5 bg-[#111827] p-6 md:p-8 rounded-2xl border border-gray-800"
         >
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-2">
               Dori nomi *
             </label>
             <input
+              id="name"
               type="text"
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Masalan: Paratsetamol (Panadol)"
-              className="w-full px-4 py-3 bg-[#0b1120] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-cyan-500"
+              className={inputClass}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label htmlFor="group" className="block text-sm font-medium text-gray-300 mb-2">
               Farmakologik guruhi *
             </label>
             <input
+              id="group"
               type="text"
               required
               value={pharmacologicalGroup}
               onChange={(e) => setPharmacologicalGroup(e.target.value)}
-              placeholder="Masalan: Anestetiklar va antipiretiklar"
-              className="w-full px-4 py-3 bg-[#0b1120] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-cyan-500"
+              placeholder="Masalan: Analgetiklar va antipiretiklar"
+              className={inputClass}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label htmlFor="mechanism" className="block text-sm font-medium text-gray-300 mb-2">
               Ta’sir mexanizmi *
             </label>
             <textarea
+              id="mechanism"
               required
-              rows={4}
+              rows={5}
               value={mechanismOfAction}
               onChange={(e) => setMechanismOfAction(e.target.value)}
-              placeholder="Dorining organizmga qanday ta'sir qilishini yozing..."
-              className="w-full px-4 py-3 bg-[#0b1120] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-cyan-500"
+              placeholder="Dori organizmga qanday ta’sir qilishini yozing..."
+              className={inputClass}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Video havolasi (YouTube Embed URL - ixtiyoriy)
+            <label htmlFor="video" className="block text-sm font-medium text-gray-300 mb-2">
+              YouTube havolasi (ixtiyoriy)
             </label>
             <input
+              id="video"
               type="url"
               value={videoUrl}
               onChange={(e) => setVideoUrl(e.target.value)}
-              placeholder="https://www.youtube.com/embed/..."
-              className="w-full px-4 py-3 bg-[#0b1120] border border-gray-700 rounded-xl text-white focus:outline-none focus:border-cyan-500"
+              placeholder="https://www.youtube.com/watch?v=..."
+              className={inputClass}
             />
+            <p className="text-xs text-gray-500 mt-2">
+              Oddiy YouTube havolasini qo‘ying, embed havolaga o‘zi aylantiriladi.
+            </p>
           </div>
 
           <button
