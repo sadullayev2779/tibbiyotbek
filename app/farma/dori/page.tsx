@@ -68,9 +68,17 @@ export default function DrugsDatabasePage() {
     <div className="min-h-screen bg-[#0b1120] text-white p-6 md:p-12">
       <div className="max-w-4xl mx-auto">
         <div className="mb-8">
-          <Link href="/" className="text-xs text-gray-400 hover:text-cyan-400 mb-2 inline-block">
-            &larr; Bosh sahifaga qaytish
-          </Link>
+          <div className="flex items-center justify-between mb-2">
+            <Link href="/" className="text-xs text-gray-400 hover:text-cyan-400">
+              &larr; Bosh sahifaga qaytish
+            </Link>
+            <Link
+              href="/farma/ai"
+              className="text-xs px-3 py-1.5 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 rounded-lg transition"
+            >
+              AI yordamchi
+            </Link>
+          </div>
           <h1 className="text-2xl md:text-3xl font-bold text-cyan-400">
             Farmakologiya — Dori vositalari bazasi
           </h1>
