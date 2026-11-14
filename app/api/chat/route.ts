@@ -5,6 +5,9 @@ export const maxDuration = 60;
 
 // ---- Sozlamalar ----
 const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || ''; // ixtiyoriy zaxira model
+const SEARCH_ENABLED = process.env.GEMINI_SEARCH !== 'off'; // 'off' bo‘lsa, Google Search ishlatilmaydi
+const CALL_TIMEOUT_MS = 16_000; // har bir chaqiruv uchun; Vercel limiti 60s
 const MAX_MESSAGE_LENGTH = 1000;
 const MAX_HISTORY = 6;
 const RATE_LIMIT = 10; // bitta IP uchun
@@ -161,12 +164,17 @@ async function buildDatabaseContext(question: string): Promise<string> {
 }
 
 // ---- Gemini chaqiruvi ----
-async function callGemini(apiKey: string, contents: unknown[], useSearch: boolean): Promise<Response> {
+async function callGemini(
+  apiKey: string,
+  model: string,
+  contents: unknown[],
+  useSearch: boolean
+): Promise<Response> {
   const systemText = useSearch
     ? SYSTEM_PROMPT
     : `${SYSTEM_PROMPT}\n\nMUHIM: Hozir Google Search mavjud emas. "🔬 Ilmiy manbalar bo‘yicha" bo‘limini yozma. Faqat baza ma’lumoti va umumiy bilimdan foydalan; umumiy bilimni ⚠️ bo‘limiga yoz.`;
 
-  return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+  return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({
@@ -175,8 +183,49 @@ async function callGemini(apiKey: string, contents: unknown[], useSearch: boolea
       ...(useSearch ? { tools: [{ google_search: {} }] } : {}),
       generationConfig: { temperature: 0.2, maxOutputTokens: 1500 },
     }),
-    signal: AbortSignal.timeout(50_000),
+    signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
   });
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Asosiy modelga 2 marta, zaxira modelga 1 marta urinadi. Qidiruv ruxsat etilmasa (429), qidiruvsiz davom etadi.
+async function generateWithFallback(
+  apiKey: string,
+  contents: unknown[]
+): Promise<{ res: Response | null; useSearch: boolean }> {
+  const models = [MODEL, FALLBACK_MODEL].filter((m, i, arr) => m && arr.indexOf(m) === i);
+  let useSearch = SEARCH_ENABLED;
+  let lastRes: Response | null = null;
+
+  for (let m = 0; m < models.length; m++) {
+    const model = models[m];
+    const attempts = m === 0 ? 2 : 1;
+
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      let res: Response;
+      try {
+        res = await callGemini(apiKey, model, contents, useSearch);
+        if (res.status === 429 && useSearch) {
+          console.error(`Gemini 429 (Google Search bilan, ${model}):`, await res.text());
+          useSearch = false;
+          res = await callGemini(apiKey, model, contents, false);
+        }
+      } catch (err) {
+        console.error(`Gemini so‘rovi muvaffaqiyatsiz (${model}):`, err);
+        lastRes = null;
+        continue;
+      }
+
+      if (res.ok) return { res, useSearch };
+      lastRes = res;
+      if (res.status !== 503 && res.status !== 500) return { res, useSearch };
+
+      console.error(`Gemini ${res.status} (${model}), urinish ${attempt}`);
+      await sleep(1000);
+    }
+  }
+  return { res: lastRes, useSearch };
 }
 
 // ---- Asosiy handler ----
@@ -216,30 +265,15 @@ export async function POST(req: Request) {
     return { role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text }] };
   });
 
-  let useSearch = true;
-  let res: Response;
-  try {
-    res = await callGemini(apiKey, contents, true);
-    if (res.status === 429) {
-      // Google Search bilan 429 bo‘lsa (masalan, bepul tarifda ruxsat yo‘q), qidiruvsiz qayta urinamiz
-      console.error('Gemini 429 (Google Search bilan):', await res.text());
-      useSearch = false;
-      res = await callGemini(apiKey, contents, false);
-    }
+  const { res: result, useSearch } = await generateWithFallback(apiKey, contents);
 
-    // Google band bo‘lsa (500/503), qisqa pauza bilan 2 marta qayta urinamiz
-    for (let attempt = 1; attempt <= 2 && (res.status === 503 || res.status === 500); attempt++) {
-      console.error(`Gemini ${res.status}, qayta urinish ${attempt}`);
-      await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
-      res = await callGemini(apiKey, contents, useSearch);
-    }
-  } catch (err) {
-    console.error('Gemini so‘rovi muvaffaqiyatsiz:', err);
+  if (!result) {
     return NextResponse.json(
-      { error: 'AI javob bermadi. Birozdan keyin qayta urinib ko‘ring.' },
+      { error: 'AI hozir javob bermayapti (kutish vaqti tugadi). Birozdan keyin qayta urinib ko‘ring.' },
       { status: 504 }
     );
   }
+  const res = result;
 
   if (!res.ok) {
     const errText = await res.text();
