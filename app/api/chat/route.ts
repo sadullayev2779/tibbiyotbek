@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 export const maxDuration = 60;
 
 // ---- Sozlamalar ----
-const MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const MAX_MESSAGE_LENGTH = 1000;
 const MAX_HISTORY = 6;
 const RATE_LIMIT = 10; // bitta IP uchun
@@ -235,13 +235,23 @@ export async function POST(req: Request) {
   }
 
   if (!res.ok) {
-    console.error('Gemini xatosi:', res.status, await res.text());
+    const errText = await res.text();
+    console.error('Gemini xatosi:', res.status, errText);
+
+    // Google xabarini (kalit emas) qisqa ko‘rsatamiz, nosozlikni topish uchun
+    let detail = '';
+    try {
+      detail = (JSON.parse(errText)?.error?.message as string | undefined) ?? '';
+    } catch {
+      /* JSON emas */
+    }
+
     return NextResponse.json(
       {
         error:
           res.status === 429
             ? 'AI so‘rovlar limiti tugadi. Keyinroq urinib ko‘ring.'
-            : `AI xizmatida xatolik yuz berdi (kod ${res.status}).`,
+            : `AI xizmatida xatolik yuz berdi (kod ${res.status}).${detail ? ` ${detail.slice(0, 200)}` : ''}`,
       },
       { status: res.status === 429 ? 429 : 502 }
     );
