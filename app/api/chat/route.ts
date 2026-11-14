@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 export const maxDuration = 60;
 
 // ---- Sozlamalar ----
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 const MAX_MESSAGE_LENGTH = 1000;
 const MAX_HISTORY = 6;
 const RATE_LIMIT = 10; // bitta IP uchun
