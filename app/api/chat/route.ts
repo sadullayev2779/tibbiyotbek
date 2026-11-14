@@ -241,7 +241,7 @@ export async function POST(req: Request) {
         error:
           res.status === 429
             ? 'AI so‘rovlar limiti tugadi. Keyinroq urinib ko‘ring.'
-            : 'AI xizmatida xatolik yuz berdi.',
+            : `AI xizmatida xatolik yuz berdi (kod ${res.status}).`,
       },
       { status: res.status === 429 ? 429 : 502 }
     );
