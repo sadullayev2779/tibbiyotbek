@@ -10,6 +10,7 @@ type ChatMessage = {
   content: string;
   sources?: Source[];
   searchHtml?: string | null;
+  searchUnavailable?: boolean;
 };
 
 const EXAMPLES = [
@@ -59,6 +60,7 @@ export default function AiAssistantPage() {
             content: data.answer,
             sources: data.sources,
             searchHtml: data.searchHtml,
+            searchUnavailable: data.searchUsed === false,
           },
         ]);
       }
@@ -114,6 +116,12 @@ export default function AiAssistantPage() {
                 <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">
                   {m.content}
                 </p>
+
+                {m.searchUnavailable && (
+                  <p className="mt-3 text-xs text-amber-300">
+                    Ilmiy manbalar qidiruvi hozir mavjud emas. Javob baza va umumiy bilimga asoslangan, uni darslikdan tekshiring.
+                  </p>
+                )}
 
                 {m.sources && m.sources.length > 0 && (
                   <div className="mt-3 pt-3 border-t border-gray-800">

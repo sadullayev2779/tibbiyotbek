@@ -160,6 +160,25 @@ async function buildDatabaseContext(question: string): Promise<string> {
   return `Bu savolga mos dori bazada topilmadi. Bazadagi dorilar: ${list || 'hozircha bo‘sh'}.`;
 }
 
+// ---- Gemini chaqiruvi ----
+async function callGemini(apiKey: string, contents: unknown[], useSearch: boolean): Promise<Response> {
+  const systemText = useSearch
+    ? SYSTEM_PROMPT
+    : `${SYSTEM_PROMPT}\n\nMUHIM: Hozir Google Search mavjud emas. "🔬 Ilmiy manbalar bo‘yicha" bo‘limini yozma. Faqat baza ma’lumoti va umumiy bilimdan foydalan; umumiy bilimni ⚠️ bo‘limiga yoz.`;
+
+  return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemText }] },
+      contents,
+      ...(useSearch ? { tools: [{ google_search: {} }] } : {}),
+      generationConfig: { temperature: 0.2, maxOutputTokens: 1500 },
+    }),
+    signal: AbortSignal.timeout(50_000),
+  });
+}
+
 // ---- Asosiy handler ----
 export async function POST(req: Request) {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
@@ -197,22 +216,16 @@ export async function POST(req: Request) {
     return { role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text }] };
   });
 
+  let useSearch = true;
   let res: Response;
   try {
-    res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          contents,
-          tools: [{ google_search: {} }],
-          generationConfig: { temperature: 0.2, maxOutputTokens: 1500 },
-        }),
-        signal: AbortSignal.timeout(50_000),
-      }
-    );
+    res = await callGemini(apiKey, contents, true);
+    if (res.status === 429) {
+      // Google Search bilan 429 bo‘lsa (masalan, bepul tarifda ruxsat yo‘q), qidiruvsiz qayta urinamiz
+      console.error('Gemini 429 (Google Search bilan):', await res.text());
+      useSearch = false;
+      res = await callGemini(apiKey, contents, false);
+    }
   } catch (err) {
     console.error('Gemini so‘rovi muvaffaqiyatsiz:', err);
     return NextResponse.json(
@@ -257,6 +270,7 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     answer,
+    searchUsed: useSearch,
     sources,
     searchHtml: candidate?.groundingMetadata?.searchEntryPoint?.renderedContent ?? null,
   });
