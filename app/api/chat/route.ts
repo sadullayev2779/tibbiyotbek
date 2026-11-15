@@ -485,10 +485,20 @@ export async function POST(req: Request) {
   }
 
   // Manbalar: avval PubMed maqolalari, keyin Google Search (agar ishlatilgan bo‘lsa)
-  const sources: { title: string; url: string }[] = articles.map((a, i) => ({
-    title: `[P${i + 1}] PubMed: ${a.title} (${a.journal}, ${a.year})`,
-    url: `https://pubmed.ncbi.nlm.nih.gov/${a.pmid}/`,
-  }));
+  // Javobda haqiqatan havola qilingan maqolalarni ko‘rsatamiz ([P1], [P2, P3] ...).
+  // Hech biri havola qilinmagan bo‘lsa, topilgan hammasini ko‘rsatamiz.
+  const cited = new Set<number>();
+  for (const group of answer.matchAll(/\[(P\d+[^\]]*)\]/g)) {
+    for (const n of group[1].matchAll(/\d+/g)) cited.add(Number(n[0]));
+  }
+  const sources: { title: string; url: string }[] = articles
+    .map((a, i) => ({
+      n: i + 1,
+      title: `[P${i + 1}] PubMed: ${a.title} (${a.journal}, ${a.year})`,
+      url: `https://pubmed.ncbi.nlm.nih.gov/${a.pmid}/`,
+    }))
+    .filter((s) => cited.size === 0 || cited.has(s.n))
+    .map(({ title, url }) => ({ title, url }));
   const seen = new Set<string>(sources.map((s) => s.url));
   for (const chunk of candidate?.groundingMetadata?.groundingChunks ?? []) {
     const url = chunk.web?.uri;
