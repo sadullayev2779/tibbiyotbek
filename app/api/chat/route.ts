@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { gatherSources, type SourceDoc } from '@/lib/sources';
 
 export const maxDuration = 60;
 
@@ -7,10 +8,9 @@ export const maxDuration = 60;
 const MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || ''; // ixtiyoriy zaxira model
 const SEARCH_ENABLED = process.env.GEMINI_SEARCH !== 'off'; // 'off' bo‘lsa, Google Search ishlatilmaydi
-const PUBMED_ENABLED = process.env.PUBMED !== 'off'; // 'off' bo‘lsa, PubMed ishlatilmaydi
 
 const CALL_TIMEOUT_MS = 16_000; // har bir Gemini chaqiruvi
-const PUBMED_BUDGET_MS = 10_000; // PubMed bosqichi uchun umumiy vaqt
+const SOURCES_BUDGET_MS = 11_000; // ilmiy manbalarni yig‘ish uchun umumiy vaqt
 const TOTAL_BUDGET_MS = 55_000; // Vercel limiti 60s
 const MAX_MESSAGE_LENGTH = 1000;
 const MAX_HISTORY = 6;
@@ -21,7 +21,7 @@ const SYSTEM_PROMPT = `Sen Tibbiyotbek platformasining o‘quv yordamchisisan. F
 
 Qoidalar:
 1. Avval "BAZA MA’LUMOTI" ichidagi platforma ma’lumotlaridan foydalan.
-2. Ilmiy tasdiq uchun "ILMIY MANBALAR (PubMed)" ichidagi maqola annotatsiyalariga tayan va da’voning yonida [P1], [P2] kabi belgi qo‘y. Faqat annotatsiyada yozilgan narsani maqolaga bog‘la. Agar maqola savolga bevosita taalluqli bo‘lmasa (masalan, boshqa kasallik yoki boshqa dori haqida), uni e’tiborsiz qoldir va unga [P] belgisi qo‘yma; mos maqola bo‘lmasa, buni ochiq ayt. Agar Google Search mavjud bo‘lsa, ishonchli manbalardan (PubMed, WHO, FDA, EMA, CDC, NIH, Cochrane, DailyMed, rasmiy darsliklar) ham foydalan; blog, forum va savdo saytlariga tayanma.
+2. Ilmiy tasdiq uchun "ILMIY MANBALAR" ichidagi maqola annotatsiyalari, dori yo‘riqnomalari va ma’lumotnoma yozuvlariga (PubChem, ATC tasnifi) tayan va da’voning yonida [P1], [P2] kabi belgi qo‘y. Faqat manbada yozilgan narsani manbaga bog‘la. Agar manba savolga bevosita taalluqli bo‘lmasa (masalan, boshqa kasallik yoki boshqa dori haqida), uni e’tiborsiz qoldir va unga [P] belgisi qo‘yma; mos manba bo‘lmasa, buni ochiq ayt. Agar Google Search mavjud bo‘lsa, ishonchli manbalardan (PubMed, WHO, FDA, EMA, CDC, NIH, Cochrane, DailyMed, rasmiy darsliklar) ham foydalan; blog, forum va savdo saytlariga tayanma.
 3. Javobni quyidagi bo‘limlarga ajrat (faqat kerak bo‘lganlarini yoz):
 ✅ Platforma bazasidan:
 🔬 Ilmiy manbalar bo‘yicha:
@@ -35,7 +35,7 @@ Qoidalar:
 function buildSystemText(useSearch: boolean, hasPubmed: boolean): string {
   if (useSearch) return SYSTEM_PROMPT;
   const note = hasPubmed
-    ? 'MUHIM: Hozir Google Search mavjud emas. "🔬 Ilmiy manbalar bo‘yicha" bo‘limida faqat "ILMIY MANBALAR (PubMed)" ichidagi maqolalarga [P1], [P2] kabi havola bilan tayan.'
+    ? 'MUHIM: Hozir Google Search mavjud emas. "🔬 Ilmiy manbalar bo‘yicha" bo‘limida faqat "ILMIY MANBALAR" ichidagi manbalarga [P1], [P2] kabi havola bilan tayan.'
     : 'MUHIM: Hozir ilmiy manba topilmadi va Google Search mavjud emas. "🔬 Ilmiy manbalar bo‘yicha" bo‘limini yozma. Faqat baza ma’lumoti va umumiy bilimdan foydalan; umumiy bilimni ⚠️ bo‘limiga yoz.';
   return `${SYSTEM_PROMPT}\n\n${note}`;
 }
@@ -69,14 +69,6 @@ type DrugRow = {
   name: string;
   pharmacological_group: string | null;
   mechanism_of_action: string | null;
-};
-
-type PubMedArticle = {
-  pmid: string;
-  title: string;
-  journal: string;
-  year: string;
-  abstract: string;
 };
 
 interface GeminiResponse {
@@ -184,131 +176,13 @@ async function buildDatabaseContext(question: string): Promise<string> {
   return `Bu savolga mos dori bazada topilmadi. Bazadagi dorilar: ${list || 'hozircha bo‘sh'}.`;
 }
 
-// ---- PubMed (bepul, NCBI E-utilities) ----
-const NCBI = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
-
-function ncbiParams(): string {
-  const key = process.env.NCBI_API_KEY; // ixtiyoriy: limitni oshiradi
-  return `tool=tibbiyotbek${key ? `&api_key=${encodeURIComponent(key)}` : ''}`;
-}
-
-function cleanXml(text: string): string {
-  return text
-    .replace(/<[^>]+>/g, '')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function parsePubMedXml(xml: string): PubMedArticle[] {
-  return xml
-    .split('<PubmedArticle>')
-    .slice(1)
-    .map((block) => {
-      const pmid = block.match(/<PMID[^>]*>(\d+)<\/PMID>/)?.[1] ?? '';
-      const title = cleanXml(block.match(/<ArticleTitle[^>]*>([\s\S]*?)<\/ArticleTitle>/)?.[1] ?? '');
-      const journal = cleanXml(block.match(/<Journal>[\s\S]*?<Title>([\s\S]*?)<\/Title>/)?.[1] ?? '');
-      const year = block.match(/<PubDate>[\s\S]*?<Year>(\d{4})<\/Year>/)?.[1] ?? '';
-      const abstract = [...block.matchAll(/<AbstractText([^>]*)>([\s\S]*?)<\/AbstractText>/g)]
-        .map((m) => {
-          const label = m[1].match(/Label="([^"]+)"/)?.[1];
-          const text = cleanXml(m[2]);
-          return label ? `${label}: ${text}` : text;
-        })
-        .join(' ');
-      return { pmid, title, journal, year, abstract };
-    })
-    .filter((a) => a.pmid && a.title && a.abstract);
-}
-
-// O‘zbekcha savolni inglizcha PubMed so‘roviga aylantiradi (qisqa Gemini chaqiruvi)
-async function toPubMedQuery(apiKey: string, userTexts: string): Promise<string | null> {
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  text: `Convert the student's latest question(s) below into a concise English PubMed search query (3-8 words, drug and topic names in English, e.g. "paracetamol mechanism of action"). If a follow-up such as "its effects" refers to the previous question, use the previous topic. Output ONLY the query, nothing else.\n\nQuestions:\n${userTexts}`,
-                },
-              ],
-            },
-          ],
-          generationConfig: { temperature: 0, maxOutputTokens: 256 },
-        }),
-        signal: AbortSignal.timeout(7_000),
-      }
-    );
-    if (!res.ok) return null;
-    const data = (await res.json()) as GeminiResponse;
-    const text = (data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join('');
-    const query = text
-      .replace(/[^a-zA-Z0-9\s-]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 100);
-    return query.length >= 3 ? query : null;
-  } catch (err) {
-    console.error('PubMed so‘rovini tayyorlashda xato:', err);
-    return null;
-  }
-}
-
-async function pubmedSearchIds(term: string): Promise<string[]> {
-  const url = `${NCBI}/esearch.fcgi?db=pubmed&retmode=json&retmax=4&sort=relevance&${ncbiParams()}&term=${encodeURIComponent(term)}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
-  if (!res.ok) return [];
-  const data = (await res.json()) as { esearchresult?: { idlist?: string[] } };
-  return data.esearchresult?.idlist ?? [];
-}
-
-async function searchPubMed(query: string): Promise<PubMedArticle[]> {
-  // Avval sharhlar, meta-tahlillar va qo‘llanmalarni qidiramiz; kam bo‘lsa, kengroq
-  let ids = await pubmedSearchIds(
-    `(${query}) AND hasabstract AND (review[pt] OR systematic review[pt] OR meta-analysis[pt] OR guideline[pt])`
-  );
-  if (ids.length < 2) ids = await pubmedSearchIds(`(${query}) AND hasabstract`);
-  if (ids.length === 0) return [];
-
-  const url = `${NCBI}/efetch.fcgi?db=pubmed&retmode=xml&id=${ids.join(',')}&${ncbiParams()}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
-  if (!res.ok) return [];
-  return parsePubMedXml(await res.text());
-}
-
-async function fetchPubMedArticles(apiKey: string, userTexts: string): Promise<PubMedArticle[]> {
-  const work = (async () => {
-    const query = await toPubMedQuery(apiKey, userTexts);
-    if (!query) return [];
-    return searchPubMed(query);
-  })();
-  const timeout = new Promise<PubMedArticle[]>((resolve) =>
-    setTimeout(() => resolve([]), PUBMED_BUDGET_MS)
-  );
-  try {
-    return await Promise.race([work, timeout]);
-  } catch (err) {
-    console.error('PubMed xatosi:', err);
-    return [];
-  }
-}
-
-function formatPubMedContext(articles: PubMedArticle[]): string {
-  if (articles.length === 0) return 'Mos maqola topilmadi.';
-  return articles
+// ---- Manbalarni modelga beriladigan matnga aylantirish ----
+function formatSourcesContext(docs: SourceDoc[]): string {
+  if (docs.length === 0) return 'Mos manba topilmadi.';
+  return docs
     .map(
-      (a, i) =>
-        `[P${i + 1}] ${a.title} (${a.journal}, ${a.year}; PMID ${a.pmid})\n${a.abstract.slice(0, 1200)}`
+      (d, i) =>
+        `[P${i + 1}] ${d.source}: ${d.title}${d.meta ? ` (${d.meta})` : ''}\n${d.text.slice(0, 1400)}`
     )
     .join('\n\n');
 }
@@ -420,15 +294,15 @@ export async function POST(req: Request) {
     .map((m) => m.content)
     .join('\n');
 
-  const [dbContext, articles] = await Promise.all([
+  const [dbContext, docs] = await Promise.all([
     buildDatabaseContext(userTexts),
-    PUBMED_ENABLED ? fetchPubMedArticles(apiKey, userTexts) : Promise.resolve<PubMedArticle[]>([]),
+    gatherSources(apiKey, MODEL, userTexts, SOURCES_BUDGET_MS),
   ]);
 
   const contents = messages.map((m, i) => {
     const isLast = i === messages.length - 1;
     const text = isLast
-      ? `BAZA MA’LUMOTI:\n${dbContext}\n\nILMIY MANBALAR (PubMed):\n${formatPubMedContext(articles)}\n\nSAVOL:\n${m.content}`
+      ? `BAZA MA’LUMOTI:\n${dbContext}\n\nILMIY MANBALAR:\n${formatSourcesContext(docs)}\n\nSAVOL:\n${m.content}`
       : m.content;
     return { role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text }] };
   });
@@ -436,7 +310,7 @@ export async function POST(req: Request) {
   const { res: result, useSearch } = await generateWithFallback(
     apiKey,
     contents,
-    articles.length > 0,
+    docs.length > 0,
     started + TOTAL_BUDGET_MS
   );
 
@@ -484,20 +358,20 @@ export async function POST(req: Request) {
     );
   }
 
-  // Manbalar: avval PubMed maqolalari, keyin Google Search (agar ishlatilgan bo‘lsa)
-  // Javobda haqiqatan havola qilingan maqolalarni ko‘rsatamiz ([P1], [P2, P3] ...).
+  // Manbalar: avval ilmiy manbalar (openFDA, PubMed, Europe PMC), keyin Google Search (agar ishlatilgan bo‘lsa).
+  // Javobda haqiqatan havola qilingan manbalarni ko‘rsatamiz ([P1], [P2, P3] ...).
   // Hech biri havola qilinmagan bo‘lsa, topilgan hammasini ko‘rsatamiz.
   const cited = new Set<number>();
   for (const group of answer.matchAll(/\[(P\d+[^\]]*)\]/g)) {
     for (const n of group[1].matchAll(/\d+/g)) cited.add(Number(n[0]));
   }
-  const sources: { title: string; url: string }[] = articles
-    .map((a, i) => ({
+  const sources: { title: string; url: string }[] = docs
+    .map((d, i) => ({
       n: i + 1,
-      title: `[P${i + 1}] PubMed: ${a.title} (${a.journal}, ${a.year})`,
-      url: `https://pubmed.ncbi.nlm.nih.gov/${a.pmid}/`,
+      title: `[P${i + 1}] ${d.source}: ${d.title}${d.meta ? ` (${d.meta})` : ''}`,
+      url: d.url,
     }))
-    .filter((s) => cited.size === 0 || cited.has(s.n))
+    .filter((item) => cited.size === 0 || cited.has(item.n))
     .map(({ title, url }) => ({ title, url }));
   const seen = new Set<string>(sources.map((s) => s.url));
   for (const chunk of candidate?.groundingMetadata?.groundingChunks ?? []) {
@@ -511,7 +385,7 @@ export async function POST(req: Request) {
   return NextResponse.json({
     answer,
     searchUsed: useSearch,
-    sourcesAvailable: articles.length > 0 || useSearch,
+    sourcesAvailable: docs.length > 0 || useSearch,
     sources,
     searchHtml: candidate?.groundingMetadata?.searchEntryPoint?.renderedContent ?? null,
   });
