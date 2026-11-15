@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
@@ -42,7 +42,7 @@ export default function AdminDrugsPage() {
   const [videoUrl, setVideoUrl] = useState('');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
-  const formRef = useRef<HTMLDivElement>(null);
+  const [tab, setTab] = useState<'form' | 'list'>('form');
 
   // Ro‘yxat
   const [drugs, setDrugs] = useState<Drug[]>([]);
@@ -107,7 +107,8 @@ export default function AdminDrugsPage() {
     setVideoUrl(drug.video_url ?? '');
     setMessage(null);
     setConfirmDeleteId(null);
-    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTab('form');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -154,6 +155,7 @@ export default function AdminDrugsPage() {
       video_url: embedUrl,
     };
 
+    const wasEditing = editingId !== null;
     setSaving(true);
 
     if (editingId !== null) {
@@ -190,6 +192,7 @@ export default function AdminDrugsPage() {
 
     resetForm();
     loadDrugs();
+    if (wasEditing) setTab('list');
   };
 
   const handleDelete = async (id: number) => {
@@ -310,8 +313,36 @@ export default function AdminDrugsPage() {
           </div>
         )}
 
+        {/* Tablar */}
+        <div
+          role="tablist"
+          className="flex gap-2 mb-6 p-1 bg-[#111827] border border-gray-800 rounded-xl"
+        >
+          <button
+            role="tab"
+            aria-selected={tab === 'form'}
+            onClick={() => setTab('form')}
+            className={`flex-1 py-2.5 text-sm font-medium rounded-lg transition cursor-pointer ${
+              tab === 'form' ? 'bg-cyan-600 text-white' : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            {isEditing ? 'Tahrirlash' : 'Yangi dori'}
+          </button>
+          <button
+            role="tab"
+            aria-selected={tab === 'list'}
+            onClick={() => setTab('list')}
+            className={`flex-1 py-2.5 text-sm font-medium rounded-lg transition cursor-pointer ${
+              tab === 'list' ? 'bg-cyan-600 text-white' : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            Mavjud dorilar{drugs.length > 0 ? ` (${drugs.length})` : ''}
+          </button>
+        </div>
+
         {/* Forma: qo‘shish yoki tahrirlash */}
-        <div ref={formRef} className="scroll-mt-6">
+        {tab === 'form' && (
+        <div>
           <form
             onSubmit={handleSubmit}
             className={`space-y-5 bg-[#111827] p-6 md:p-8 rounded-2xl border ${
@@ -396,7 +427,10 @@ export default function AdminDrugsPage() {
               {isEditing && (
                 <button
                   type="button"
-                  onClick={resetForm}
+                  onClick={() => {
+                    resetForm();
+                    setTab('list');
+                  }}
                   className="px-5 py-3.5 bg-gray-800 hover:bg-gray-700 text-white rounded-xl transition cursor-pointer"
                 >
                   Bekor qilish
@@ -405,9 +439,11 @@ export default function AdminDrugsPage() {
             </div>
           </form>
         </div>
+        )}
 
         {/* Mavjud dorilar */}
-        <div className="mt-12">
+        {tab === 'list' && (
+        <div>
           <h2 className="text-xl font-bold text-cyan-400 mb-4">
             Mavjud dorilar{!listLoading && !listError ? ` (${drugs.length})` : ''}
           </h2>
@@ -506,6 +542,7 @@ export default function AdminDrugsPage() {
             </ul>
           )}
         </div>
+        )}
       </div>
     </div>
   );

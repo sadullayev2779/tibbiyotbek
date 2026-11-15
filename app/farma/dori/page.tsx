@@ -19,6 +19,7 @@ export default function DrugsDatabasePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDrug, setSelectedDrug] = useState<Drug | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const fetchDrugs = useCallback(async () => {
     setLoading(true);
@@ -40,6 +41,11 @@ export default function DrugsDatabasePage() {
   useEffect(() => {
     fetchDrugs();
   }, [fetchDrugs]);
+
+  // Faqat tizimga kirgan admin uchun "Admin panel" havolasi ko‘rinadi
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setIsAdmin(Boolean(data.session)));
+  }, []);
 
   // Escape bosilganda oynani yopish
   useEffect(() => {
@@ -72,12 +78,22 @@ export default function DrugsDatabasePage() {
             <Link href="/" className="text-xs text-gray-400 hover:text-cyan-400">
               &larr; Bosh sahifaga qaytish
             </Link>
-            <Link
-              href="/farma/ai"
-              className="text-xs px-3 py-1.5 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 rounded-lg transition"
-            >
-              AI yordamchi
-            </Link>
+            <div className="flex items-center gap-2">
+              {isAdmin && (
+                <Link
+                  href="/farma/adminlar"
+                  className="text-xs px-3 py-1.5 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 rounded-lg transition"
+                >
+                  Admin panel
+                </Link>
+              )}
+              <Link
+                href="/farma/ai"
+                className="text-xs px-3 py-1.5 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 rounded-lg transition"
+              >
+                AI yordamchi
+              </Link>
+            </div>
           </div>
           <h1 className="text-2xl md:text-3xl font-bold text-cyan-400">
             Farmakologiya — Dori vositalari bazasi
