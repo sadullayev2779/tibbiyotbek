@@ -5,6 +5,9 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { toYouTubeEmbedUrl } from '@/lib/video';
 
+// O'zingizning admin emailingizni shu yerga yozing
+const ADMIN_EMAIL = 'assalomualaykum121@gmail.com'; // <-- O'z emailingizga o'zgartiring
+
 interface Drug {
   id: number;
   name: string;
@@ -42,9 +45,16 @@ export default function DrugsDatabasePage() {
     fetchDrugs();
   }, [fetchDrugs]);
 
-  // Faqat tizimga kirgan admin uchun "Admin panel" havolasi ko‘rinadi
+  // Faqat haqiqiy admin email bilan kirilgandagina "Admin panel" ko'rsatiladi
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setIsAdmin(Boolean(data.session)));
+    supabase.auth.getSession().then(({ data }) => {
+      const session = data.session;
+      if (session?.user?.email === ADMIN_EMAIL) {
+        setIsAdmin(true);
+      } else {
+        setIsAdmin(false);
+      }
+    });
   }, []);
 
   // Escape bosilganda oynani yopish
