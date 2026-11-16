@@ -10,7 +10,7 @@ const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || ''; // ixtiyoriy zax
 const SEARCH_ENABLED = process.env.GEMINI_SEARCH !== 'off'; // 'off' bo‘lsa, Google Search ishlatilmaydi
 
 const CALL_TIMEOUT_MS = 16_000; // har bir Gemini chaqiruvi
-const SOURCES_BUDGET_MS = 11_000; // ilmiy manbalarni yig‘ish uchun umumiy vaqt
+const SOURCES_BUDGET_MS = 13_000; // ilmiy manbalarni yig‘ish uchun umumiy vaqt
 const TOTAL_BUDGET_MS = 55_000; // Vercel limiti 60s
 const MAX_MESSAGE_LENGTH = 1000;
 const MAX_HISTORY = 6;
@@ -20,8 +20,8 @@ const RATE_WINDOW_MS = 10 * 60 * 1000; // 10 daqiqada
 const SYSTEM_PROMPT = `Sen Tibbiyotbek platformasining o‘quv yordamchisisan. Foydalanuvchilar — tibbiyot talabalari. O‘zbek tilida (lotin) javob ber; foydalanuvchi boshqa tilda yozsa, o‘sha tilda javob ber.
 
 Qoidalar:
-1. Avval "BAZA MA’LUMOTI" ichidagi platforma ma’lumotlaridan foydalan.
-2. Ilmiy tasdiq uchun "ILMIY MANBALAR" ichidagi maqola annotatsiyalari, dori yo‘riqnomalari va ma’lumotnoma yozuvlariga (PubChem, ATC tasnifi) tayan va da’voning yonida [P1], [P2] kabi belgi qo‘y. Faqat manbada yozilgan narsani manbaga bog‘la. Agar manba savolga bevosita taalluqli bo‘lmasa (masalan, boshqa kasallik yoki boshqa dori haqida), uni e’tiborsiz qoldir va unga [P] belgisi qo‘yma; mos manba bo‘lmasa, buni ochiq ayt. Agar Google Search mavjud bo‘lsa, ishonchli manbalardan (PubMed, WHO, FDA, EMA, CDC, NIH, Cochrane, DailyMed, rasmiy darsliklar) ham foydalan; blog, forum va savdo saytlariga tayanma.
+1. Avval "BAZA MA’LUMOTI" ichidagi platforma ma’lumotlaridan foydalan (baza ma’lumotiga raqamli havola belgisi qo‘yma).
+2. Ilmiy tasdiq uchun "ILMIY MANBALAR" ichidagi maqola annotatsiyalari, dori yo‘riqnomalari va ma’lumotnoma yozuvlariga (PubChem, ATC tasnifi, ChEMBL mexanizmlari, klinik sinovlar, MedlinePlus, JSST statistikasi) tayan va da’voning yonida [P1], [P2] kabi belgi qo‘y. Faqat manbada yozilgan narsani manbaga bog‘la. Agar manba savolga bevosita taalluqli bo‘lmasa (masalan, boshqa kasallik yoki boshqa dori haqida), uni e’tiborsiz qoldir va unga [P] belgisi qo‘yma; mos manba bo‘lmasa, buni ochiq ayt. Agar Google Search mavjud bo‘lsa, ishonchli manbalardan (PubMed, WHO, FDA, EMA, CDC, NIH, Cochrane, DailyMed, rasmiy darsliklar) ham foydalan; blog, forum va savdo saytlariga tayanma.
 3. Javobni quyidagi bo‘limlarga ajrat (faqat kerak bo‘lganlarini yoz):
 ✅ Platforma bazasidan:
 🔬 Ilmiy manbalar bo‘yicha:
@@ -164,7 +164,7 @@ async function buildDatabaseContext(question: string): Promise<string> {
       return scored
         .map(
           ({ d }, i) =>
-            `[${i + 1}] Nomi: ${d.name}\nGuruhi: ${d.pharmacological_group ?? '—'}\nTa’sir mexanizmi: ${(d.mechanism_of_action ?? '—').slice(0, 1500)}`
+            `- Nomi: ${d.name}\nGuruhi: ${d.pharmacological_group ?? '—'}\nTa’sir mexanizmi: ${(d.mechanism_of_action ?? '—').slice(0, 1500)}`
         )
         .join('\n\n');
     }
@@ -182,7 +182,7 @@ function formatSourcesContext(docs: SourceDoc[]): string {
   return docs
     .map(
       (d, i) =>
-        `[P${i + 1}] ${d.source}: ${d.title}${d.meta ? ` (${d.meta})` : ''}\n${d.text.slice(0, 1400)}`
+        `[P${i + 1}] ${d.source}: ${d.title}${d.meta ? ` (${d.meta})` : ''}\n${d.text.slice(0, 1100)}`
     )
     .join('\n\n');
 }
