@@ -92,7 +92,7 @@ function ncbiParams(): string {
 }
 
 async function pubmedSearchIds(term: string): Promise<string[]> {
-  const url = `${NCBI}/esearch.fcgi?db=pubmed&retmode=json&retmax=4&sort=relevance&${ncbiParams()}&term=${encodeURIComponent(term)}`;
+  const url = `${NCBI}/esearch.fcgi?db=pubmed&retmode=json&retmax=5&sort=relevance&${ncbiParams()}&term=${encodeURIComponent(term)}`;
   const data = await getJson<{ esearchresult?: { idlist?: string[] } }>(url, 5_000);
   return data?.esearchresult?.idlist ?? [];
 }
@@ -206,6 +206,12 @@ interface FdaLabel {
   contraindications?: string[];
   warnings?: string[];
   dosage_and_administration?: string[];
+  pharmacokinetics?: string[];
+  drug_interactions?: string[];
+  overdosage?: string[];
+  pregnancy?: string[];
+  pediatric_use?: string[];
+  geriatric_use?: string[];
 }
 
 async function searchOpenFDA({ drug }: SearchInput): Promise<SourceDoc[]> {
@@ -222,14 +228,20 @@ async function searchOpenFDA({ drug }: SearchInput): Promise<SourceDoc[]> {
     ['Indications', label.indications_and_usage],
     ['Mechanism of action', label.mechanism_of_action],
     ['Clinical pharmacology', label.clinical_pharmacology],
-    ['Adverse reactions', label.adverse_reactions],
+    ['Pharmacokinetics', label.pharmacokinetics],
+    ['Dosage and administration', label.dosage_and_administration],
     ['Contraindications', label.contraindications],
     ['Warnings', label.warnings],
-    ['Dosage', label.dosage_and_administration],
+    ['Adverse reactions', label.adverse_reactions],
+    ['Drug interactions', label.drug_interactions],
+    ['Pregnancy', label.pregnancy],
+    ['Pediatric use', label.pediatric_use],
+    ['Geriatric use', label.geriatric_use],
+    ['Overdosage', label.overdosage],
   ];
   const text = sections
     .filter(([, value]) => value?.[0])
-    .map(([title, value]) => `${title}: ${cleanText(value![0]).slice(0, 450)}`)
+    .map(([title, value]) => `${title}: ${cleanText(value![0]).slice(0, 800)}`)
     .join('\n');
   if (!text) return [];
 
@@ -494,7 +506,7 @@ async function searchMedlinePlus({ query }: SearchInput): Promise<SourceDoc[]> {
       title,
       meta: 'NIH / NLM',
       url: decodeEntities(link),
-      text: summary.slice(0, 900),
+      text: summary.slice(0, 1500),
     });
   }
   return docs;
@@ -620,8 +632,8 @@ const REGISTRY: Record<string, { run: (input: SearchInput) => Promise<SourceDoc[
   rxclass: { run: searchRxClass, max: 1 },
   pubchem: { run: searchPubChem, max: 1 },
   cochrane: { run: searchCochrane, max: 2 },
-  pubmed: { run: searchPubMed, max: 3 },
-  europepmc: { run: searchEuropePMC, max: 2 },
+  pubmed: { run: searchPubMed, max: 4 },
+  europepmc: { run: searchEuropePMC, max: 3 },
   trials: { run: searchClinicalTrials, max: 2 },
   crossref: { run: searchCrossref, max: 1 },
   openalex: { run: searchOpenAlex, max: 2 },
